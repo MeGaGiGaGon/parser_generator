@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence, Generator
 from contextlib import contextmanager
 from typing import Literal, overload, override, Any
 
@@ -8,7 +8,7 @@ type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
 
 
 @contextmanager
-def add_note(note: str):
+def add_note(note: str) -> Generator[None]:
     try:
         yield None
     except BaseException as e:
@@ -16,7 +16,7 @@ def add_note(note: str):
         raise
 
 
-class Parser[I, O, P: (Literal[True], Literal[False])](ABC):
+class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     # `SO` instead of just `O` because python/typing#2281
     @overload
     def predicate[SO](self: Parser[I, SO, Literal[True]]) -> Sequence[Sequence[I]]: ...
