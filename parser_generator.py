@@ -17,10 +17,11 @@ def add_note(note: str):
 
 
 class Parser[I, O, P: (Literal[True], Literal[False])](ABC):
+    # `SO` instead of just `O` because python/typing#2281
     @overload
-    def predicate(self: Parser[I, O, Literal[True]]) -> Sequence[Sequence[I]]: ...
+    def predicate[SO](self: Parser[I, SO, Literal[True]]) -> Sequence[Sequence[I]]: ...
     @overload
-    def predicate(self: Parser[I, O, Literal[False]]) -> None: ...
+    def predicate[SO](self: Parser[I, SO, Literal[False]]) -> None: ...
     @abstractmethod
     def predicate(self) -> Sequence[Sequence[I]] | None: ...
 
@@ -52,6 +53,7 @@ class Parser[I, O, P: (Literal[True], Literal[False])](ABC):
             with add_note("Inside then_unpack arm one"):
                 res, index = self(input, index)
             with add_note("Inside then_unpack arm two"):
+                res2: tuple[*TS]  # python/mypy#21693
                 res2, index = other(input, index)
             return (res, *res2), index
 
@@ -62,6 +64,7 @@ class Parser[I, O, P: (Literal[True], Literal[False])](ABC):
     ) -> Parser[I, tuple[*TS, OO], P]:
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[*TS, OO]]:
             with add_note("Inside unpack_then arm one"):
+                res: tuple[*TS]  # python/mypy#21693
                 res, index = self(input, index)
             with add_note("Inside unpack_then arm two"):
                 res2, index = other(input, index)
@@ -215,9 +218,11 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                 try:
                     return parser(input, index)
                 except ValueError as e:
-                    e.add_note(f"Matched {seq=!r} out of {new_predicates=!r} at {input[index:index+10]!r} {index=}")
+                    e.add_note(
+                        f"Matched {seq=!r} out of {new_predicates=!r} at {input[index : index + 10]!r} {index=}"
+                    )
                     raise
-        msg = f"No parser predicates matched the input\nSample of input: {input[index:index+10]!r}\n{new_predicates=!r}"
+        msg = f"No parser predicates matched the input\nSample of input: {input[index : index + 10]!r}\n{new_predicates=!r}"
         raise ValueError(msg)
 
     return PredicateParser(inner, new_predicates)
@@ -228,7 +233,7 @@ def just[I](item: I) -> PredicateParser[I, I]:
         if index < len(input):
             if input[index] == item:
                 return item, index + 1
-            msg = f"Expected {item!r}, got {input[index : index + 10]!r} {input[index:index+10]!r} ({index=})"
+            msg = f"Expected {item!r}, got {input[index : index + 10]!r} {input[index : index + 10]!r} ({index=})"
             raise ValueError(msg)
         msg = f"Expected {item!r}, but input ran out at {index=}"
         raise ValueError(msg)
@@ -273,10 +278,12 @@ def any_item() -> PredicateParser[Any, Any]:  # pyright: ignore[reportExplicitAn
             msg = f"Input ran empty inside any_item ({index=})"
             raise ValueError(msg)
         return input[index], index + 1
+
     return PredicateParser(inner, [[]])
 
 
 def empty() -> PredicateParser[Any, None]:  # pyright: ignore[reportExplicitAny]
     def inner(_: Sequence[Any], index: int) -> ParserResult[None]:  # pyright: ignore[reportExplicitAny]
         return None, index
+
     return PredicateParser(inner, [[]])
