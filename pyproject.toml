@@ -5,3 +5,18 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",
+    "E", 
+    "A002",
+    "N801",
+    "COM812",
+    "C901",
+    "TC003",
+    "INP001",
+    "FBT003",
+    "PT",
+]

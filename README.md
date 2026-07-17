@@ -17,3 +17,14 @@ Most type checkers will be able to infer the types of
 these parsers without them, so they will usually only
 be needed for more complex/erroring cases.
 
+# Repetitions
+rule `A B+ C`
+
+rule_rest = choose(
+    B.then(rule_rest).map(lambda x: ([x[0], *x[1][0]], x[1][1])),
+    C.map(lambda x: ([], x))
+)
+rule = A.then(rule_rest)
+
+# Contributing
+

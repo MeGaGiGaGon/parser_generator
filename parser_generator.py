@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
-from typing import Literal, overload, override, Any
+from typing import Literal, overload, override
 
 type ParserResult[O] = tuple[O, int]
 type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
@@ -11,7 +11,7 @@ type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
 def add_note(note: str) -> Generator[None]:
     try:
         yield None
-    except BaseException as e:
+    except ValueError as e:
         e.add_note(note)
         raise
 
@@ -120,6 +120,23 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
             return item, index
 
         return self.with_new_func(inner)
+    
+    def repeated[SO, OO](self: Parser[I, SO], stopper: Parser[I, OO]) -> Parser[I, tuple[Sequence[SO], OO]]:
+        inner_choose: Parser[I, tuple[Literal[False], OO] | tuple[Literal[True], SO]] = choose(
+            stopper.map(lambda x: (False, x)),
+            self.map(lambda x: (True, x)),
+        )
+        def inner(input: Sequence[I], index: int) -> ParserResult[tuple[Sequence[SO], OO]]:
+            output: list[SO] = []
+            while True:
+                with add_note(f"Inside repeat count {len(output)} ({index=})"):
+                    result, index = inner_choose(input, index)
+                match result:
+                    case (True, value):
+                        output.append(value)
+                    case (False, value):
+                        return (output, value), index
+        return PredicateParser(inner, [*self.predicate(), *stopper.predicate()])
 
 
 class PredicateParser[I, O](Parser[I, O, Literal[True]]):
@@ -263,27 +280,50 @@ def any_of[I](values: Sequence[I]) -> PredicateParser[I, I]:
         if not index < len(input):
             msg = f"Input ran empty inside any_of\n{values=!r} ({index=})"
             raise ValueError(msg)
-        for item in values:
-            if input[index] == item:
-                return item, index + 1
+        if input[index] in values:
+            return input[index], index + 1
         msg = f"Expected one of {values!r}, got {input[index]!r} ({index=})"
         raise ValueError(msg)
 
     return PredicateParser(inner, [[x] for x in values])
 
 
-def any_item() -> PredicateParser[Any, Any]:  # pyright: ignore[reportExplicitAny]
-    def inner(input: Sequence[Any], index: int) -> ParserResult[Any]:  # pyright: ignore[reportExplicitAny]
-        if not index < len(input):
-            msg = f"Input ran empty inside any_item ({index=})"
-            raise ValueError(msg)
-        return input[index], index + 1
+class any_item[I]:
+    def __new__(cls) -> PredicateParser[I, I]:
+        def inner(input: Sequence[I], index: int) -> ParserResult[I]:
+            if not index < len(input):
+                msg = f"Input ran empty inside any_item ({index=})"
+                raise ValueError(msg)
+            return input[index], index + 1
 
-    return PredicateParser(inner, [[]])
+        return PredicateParser(inner, [[]])
 
 
-def empty() -> PredicateParser[Any, None]:  # pyright: ignore[reportExplicitAny]
-    def inner(_: Sequence[Any], index: int) -> ParserResult[None]:  # pyright: ignore[reportExplicitAny]
-        return None, index
+class empty[I]:
+    def __new__(cls) -> PredicateParser[I, None]:
+        def inner(_: Sequence[I], index: int) -> ParserResult[None]:
+            return None, index
 
-    return PredicateParser(inner, [[]])
+        return PredicateParser(inner, [[]])
+
+
+class start_of_file[I]:
+    def __new__(cls) -> PredicateParser[I, None]:
+        def inner(_: Sequence[I], index: int) -> ParserResult[None]:
+            if index != 0:
+                msg = f"Ran start_of_file not at start ({index=})"
+                raise ValueError(msg)
+            return None, index
+
+        return PredicateParser(inner, [[]])
+
+
+class end_of_file[I]:
+    def __new__(cls) -> PredicateParser[I, None]:
+        def inner(input: Sequence[I], index: int) -> ParserResult[None]:
+            if index != len(input):
+                msg = f"Ran end_of_file not at end ({index}/{len(input)})"
+                raise ValueError(msg)
+            return None, index
+
+        return PredicateParser(inner, [[]])
