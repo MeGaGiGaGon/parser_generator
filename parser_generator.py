@@ -1,52 +1,43 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
-from typing import Literal, overload, override
-import sys
-import inspect
 import textwrap
-import re
+from typing import Literal, overload, override
+import inspect
 
 type ParserResult[O] = tuple[O, int]
 type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
 
 
 @contextmanager
-def add_note(note: str, orig_info="") -> Generator[None]:
+def _add_note(note: str) -> Generator[None]:
     try:
         yield None
     except ValueError as e:
         e.add_note(note)
-        e.add_note(orig_info)
         raise
 
-def indent(line):
-    return len(line) - len(line.lstrip(" "))
-
-def note_traceback_magic[**P, T](func: Callable[P, T]) -> Callable[P, T]:
-    frame = sys._getframe().f_back
-    lines = "".join(inspect.findsource(frame)[0]).split("\n")
-    start = frame.f_lineno
-    start_indent = indent(lines[start])
-    stop = next(
-        i for i in range(start + 1, len(lines)) if indent(lines[i]) < start_indent
-    )
-    content = textwrap.dedent("\n".join(lines[start:stop]))
-    
-    new_indent = " " * start_indent
-    
-    code_to_insert = textwrap.indent(textwrap.dedent("""
-    print(1)
-    print(2)
-    """).strip(), new_indent).lstrip() + "\n" + new_indent
-    
-    content = content.replace("def inner", code_to_insert + "def inner")
-
-    content = content.replace("with add_note(", "with add_note(orig_info='1', note=")
-
-    exec(content, globals=frame.f_globals, locals=frame.f_locals)
-    return frame.f_locals[func.__name__]
-
+def _note_traceback[I, O](func: ParserFunc[I, O]) -> ParserFunc[I, O]:
+    frame = inspect.currentframe()
+    assert frame
+    frame = frame.f_back
+    assert frame
+    frame = frame.f_back
+    assert frame
+    traceback = inspect.getframeinfo(frame)
+    assert traceback.code_context
+    assert traceback.positions
+    start = traceback.positions.col_offset
+    end = traceback.positions.end_col_offset
+    if start == end:
+        start = None
+        end = None
+    note = traceback.code_context[0][start:end].rstrip()
+    def inner(input: Sequence[I], index: int) -> ParserResult[O]:
+        inner_note = textwrap.indent(f"{input[index:index+5]!r} ({index=})\n{traceback.filename}:{traceback.lineno}\n{note}", "  ")
+        with _add_note(inner_note):
+            return func(input, index)
+    return inner
 
 class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
@@ -66,103 +57,111 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     def __call__(self, input: Sequence[I], index: int) -> ParserResult[O]:
         return self.func()(input, index)
 
-    @note_traceback_magic
+   
     def then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[O, OO], P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[O, OO]]:
-            with add_note("Inside then arm one"):
+            with _add_note("Inside then arm one"):
                 res, index = self(input, index)
-            with add_note("Inside then arm two"):
+            with _add_note("Inside then arm two"):
                 res2, index = other(input, index)
             return (res, res2), index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def then_unpack[*TS, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, tuple[*TS], OP]
     ) -> Parser[I, tuple[O, *TS], P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[O, *TS]]:
-            with add_note("Inside then_unpack arm one"):
+            with _add_note("Inside then_unpack arm one"):
                 res, index = self(input, index)
-            with add_note("Inside then_unpack arm two"):
+            with _add_note("Inside then_unpack arm two"):
                 res2: tuple[*TS]  # python/mypy#21693
                 res2, index = other(input, index)
             return (res, *res2), index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def unpack_then[*TS, OO, OP: (Literal[True], Literal[False])](
         self: Parser[I, tuple[*TS], P], other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[*TS, OO], P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[*TS, OO]]:
-            with add_note("Inside unpack_then arm one"):
+            with _add_note("Inside unpack_then arm one"):
                 res: tuple[*TS]  # python/mypy#21693
                 res, index = self(input, index)
-            with add_note("Inside unpack_then arm two"):
+            with _add_note("Inside unpack_then arm two"):
                 res2, index = other(input, index)
             return (*res, res2), index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def ignore_then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, OO, P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
-            with add_note("Inside ignore_then arm one"):
+            with _add_note("Inside ignore_then arm one"):
                 _, index = self(input, index)
-            with add_note("Inside ignore_then arm two"):
+            with _add_note("Inside ignore_then arm two"):
                 return other(input, index)
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def then_ignore[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, O, P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[O]:
-            with add_note("Inside then_ignore arm one"):
+            with _add_note("Inside then_ignore arm one"):
                 res, index = self(input, index)
-            with add_note("Inside then_ignore arm two"):
+            with _add_note("Inside then_ignore arm two"):
                 _, index = other(input, index)
             return res, index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def map[OO](self, func: Callable[[O], OO]) -> Parser[I, OO, P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
-            with add_note("Inside map"):
+            with _add_note("Inside map"):
                 res, index = self(input, index)
             return func(res), index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def star_map[*TS, OO](
         self: Parser[I, tuple[*TS], P], func: Callable[[*TS], OO]
     ) -> Parser[I, OO, P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
-            with add_note("Inside star map"):
+            with _add_note("Inside star map"):
                 res, index = self(input, index)
             return func(*res), index
 
         return self.with_new_func(inner)
 
-    @note_traceback_magic
+   
     def to[OO](self, item: OO) -> Parser[I, OO, P]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
-            with add_note("Inside to"):
+            with _add_note("Inside to"):
                 _, index = self(input, index)
             return item, index
 
         return self.with_new_func(inner)
     
     # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
-    @note_traceback_magic
+   
     def repeated[SO, OO](self: Parser[I, SO], stopper: Parser[I, OO]) -> Parser[I, tuple[Sequence[SO], OO]]:
         try:
             inner_choose: Parser[I, tuple[Literal[False], OO] | tuple[Literal[True], SO]] = choose(
@@ -177,10 +176,11 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
                 )
             except ValueError as e2:
                 raise ExceptionGroup("Tried to make repeated parser but both orderings failed", (e1, e2)) from None
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[Sequence[SO], OO]]:
             output: list[SO] = []
             while True:
-                with add_note(f"Inside repeat count {len(output)} ({index=})"):
+                with _add_note(f"Inside repeat count {len(output)}"):
                     result, index = inner_choose(input, index)
                 match result:
                     case (True, value):
@@ -256,6 +256,7 @@ class ForwardRefParser[I, O](Parser[I, O, Literal[False]]):
         return SimpleParser(func)
 
 
+
 def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[True]]:
     new_predicates: list[Sequence[I]] = []
     for parser in parsers:
@@ -271,6 +272,7 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                     raise ValueError(msg)
             new_predicates.append(predicate)
 
+    @_note_traceback
     def inner(input: Sequence[I], index: int) -> ParserResult[O]:
         for parser in parsers:
             for seq in parser.predicate():
@@ -283,18 +285,20 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                     temp_index += 1
                 if seq_index < len(seq):
                     continue
-                with add_note(
-                        f"Matched {seq=!r} out of {new_predicates=!r} at {input[index : index + 10]!r} {index=}"
+                with _add_note(
+                        f"Matched {seq=!r} out of {new_predicates=!r}"
                     ):
                     return parser(input, index)
-        msg = f"No parser predicates matched the input\nSample of input: {input[index : index + 10]!r}\n{new_predicates=!r}"
-        with add_note(msg):
+        msg = f"No parser predicates matched the input {new_predicates=!r}"
+        with _add_note(msg):
             raise ValueError(msg)
 
     return PredicateParser(inner, new_predicates)
 
 
+
 def just[I](item: I) -> PredicateParser[I, I]:
+    @_note_traceback
     def inner(input: Sequence[I], index: int) -> ParserResult[I]:
         if index < len(input):
             if input[index] == item:
@@ -307,7 +311,9 @@ def just[I](item: I) -> PredicateParser[I, I]:
     return PredicateParser(inner, [[item]])
 
 
+
 def just_seq[I](seq: Sequence[I]) -> PredicateParser[I, Sequence[I]]:
+    @_note_traceback
     def inner(input: Sequence[I], index: int) -> ParserResult[Sequence[I]]:
         seq_index = 0
         while index < len(input) and seq_index < len(seq):
@@ -324,7 +330,9 @@ def just_seq[I](seq: Sequence[I]) -> PredicateParser[I, Sequence[I]]:
     return PredicateParser(inner, [seq])
 
 
+
 def any_of[I](values: Sequence[I]) -> PredicateParser[I, I]:
+    @_note_traceback
     def inner(input: Sequence[I], index: int) -> ParserResult[I]:
         if not index < len(input):
             msg = f"Input ran empty inside any_of\n{values=!r} ({index=})"
@@ -339,6 +347,7 @@ def any_of[I](values: Sequence[I]) -> PredicateParser[I, I]:
 
 class any_item[I]:
     def __new__(cls) -> PredicateParser[I, I]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[I]:
             if not index < len(input):
                 msg = f"Input ran empty inside any_item ({index=})"
@@ -356,8 +365,10 @@ class empty[I]:
         return PredicateParser(inner, [[]])
 
 
+
 class start_of_file[I]:
     def __new__(cls) -> PredicateParser[I, None]:
+        @_note_traceback
         def inner(_: Sequence[I], index: int) -> ParserResult[None]:
             if index != 0:
                 msg = f"Ran start_of_file not at start ({index=})"
@@ -369,6 +380,7 @@ class start_of_file[I]:
 
 class end_of_file[I]:
     def __new__(cls) -> PredicateParser[I, None]:
+        @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[None]:
             if index != len(input):
                 msg = f"Ran end_of_file not at end ({index}/{len(input)})"

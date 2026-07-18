@@ -107,22 +107,22 @@ class TestParser(unittest.TestCase):
 
     def test_errors(self):
         with self.assertRaises(ValueError):
-            json_parser("{", 0)
+            _ = json_parser("{", 0)
         with self.assertRaises(ValueError):
-            json_parser("}", 0)
+            _ = json_parser("}", 0)
         with self.assertRaises(ValueError):
-            json_parser("[", 0)
+            _ = json_parser("[", 0)
         with self.assertRaises(ValueError):
-            json_parser("]", 0)
+            _ = json_parser("]", 0)
         with self.assertRaises(ValueError):
-            json_parser('"', 0)
+            _ = json_parser('"', 0)
         with self.assertRaises(ValueError):
-            json_parser("a", 0)
+            _ = json_parser("a", 0)
 
     def test_complex(self):
         # fmt: off
         self.assertEqual(
-            json_parser('{"a": [], "b": {"c": {}, "d": "", "e": [{" ": [{"\r\n": \r\n[true, false, null, {"true": true, "false": false, "null": null}]}]}]}}', 0),
+            json_parser('{"a": [], "b": {"c": {}, "d": "", "e": [{[{"\r\n": \r\n[true, false, null, {"true": true, "false": false, "null": null}]}]}]}}', 0),
             (Element({"a": Element([]), "b": Element({"c": Element({}), "d": Element(""), "e": Element([Element({" ": Element([Element({"\r\n": Element([Element(True), Element(False), Element(None), Element({"true": Element(True), "false": Element(False), "null": Element(None)})])})])})])})}), 127)
         )
         # fmt: on
@@ -134,4 +134,4 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         print(json_parser(sys.argv[1], 0))  # ruff: ignore[T201]
     else:
-        unittest.main()
+        _ = unittest.main()

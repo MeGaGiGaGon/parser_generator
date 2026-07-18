@@ -42,4 +42,4 @@ if __name__ == "__main__":
     if len(sys.argv) == 2:
         print(hex_code_parser(sys.argv[1], 0))  # ruff: ignore[T201]
     else:
-        unittest.main()
+        _ = unittest.main()
