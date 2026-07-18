@@ -28,16 +28,9 @@ class Element:
     value: dict[str, Element] | list[Element] | int | str | bool | None
 
 
-ws = choose(
-    any_of(" \r\n\t").then(ForwardRefParser(lambda: ws)).map("".join),
-    empty[str]().to(""),
-)
+ws = any_of(" \r\n\t").repeated(empty[str]().to("")).map(lambda x: "".join(x[0]))
 
-string_rest: Parser[str, str] = choose(
-    just_seq('"').to(""),
-    any_item().then(ForwardRefParser(lambda: string_rest)).map("".join),
-)
-string = just('"').ignore_then(string_rest)
+string = just('"').ignore_then(any_item[str]().repeated(just_seq('"').to("")).map(lambda x: "".join(x[0])))
 
 object_member = (
     string.then_ignore(ws)
@@ -130,7 +123,7 @@ class TestParser(unittest.TestCase):
         # fmt: off
         self.assertEqual(
             json_parser('{"a": [], "b": {"c": {}, "d": "", "e": [{" ": [{"\r\n": \r\n[true, false, null, {"true": true, "false": false, "null": null}]}]}]}}', 0),
-            Element({"a": Element([]), "b": Element({"c": Element({}), "d": Element(""), "e": Element([Element({" ": Element([Element({"\r\n": Element([Element(True), Element(False), Element(None), Element({"true": Element(True), "false": Element(False), "null": Element(None)})])})])})])})}), 127
+            (Element({"a": Element([]), "b": Element({"c": Element({}), "d": Element(""), "e": Element([Element({" ": Element([Element({"\r\n": Element([Element(True), Element(False), Element(None), Element({"true": Element(True), "false": Element(False), "null": Element(None)})])})])})])})}), 127)
         )
         # fmt: on
 

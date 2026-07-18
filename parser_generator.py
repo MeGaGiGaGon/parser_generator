@@ -2,22 +2,54 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from typing import Literal, overload, override
+import sys
+import inspect
+import textwrap
+import re
 
 type ParserResult[O] = tuple[O, int]
 type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
 
 
 @contextmanager
-def add_note(note: str) -> Generator[None]:
+def add_note(note: str, orig_info="") -> Generator[None]:
     try:
         yield None
     except ValueError as e:
         e.add_note(note)
+        e.add_note(orig_info)
         raise
+
+def indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+def note_traceback_magic[**P, T](func: Callable[P, T]) -> Callable[P, T]:
+    frame = sys._getframe().f_back
+    lines = "".join(inspect.findsource(frame)[0]).split("\n")
+    start = frame.f_lineno
+    start_indent = indent(lines[start])
+    stop = next(
+        i for i in range(start + 1, len(lines)) if indent(lines[i]) < start_indent
+    )
+    content = textwrap.dedent("\n".join(lines[start:stop]))
+    
+    new_indent = " " * start_indent
+    
+    code_to_insert = textwrap.indent(textwrap.dedent("""
+    print(1)
+    print(2)
+    """).strip(), new_indent).lstrip() + "\n" + new_indent
+    
+    content = content.replace("def inner", code_to_insert + "def inner")
+
+    content = content.replace("with add_note(", "with add_note(orig_info='1', note=")
+
+    exec(content, globals=frame.f_globals, locals=frame.f_locals)
+    return frame.f_locals[func.__name__]
 
 
 class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
-    # `SO` instead of just `O` because python/typing#2281
+    # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
     @overload
     def predicate[SO](self: Parser[I, SO, Literal[True]]) -> Sequence[Sequence[I]]: ...
     @overload
@@ -34,6 +66,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     def __call__(self, input: Sequence[I], index: int) -> ParserResult[O]:
         return self.func()(input, index)
 
+    @note_traceback_magic
     def then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[O, OO], P]:
@@ -46,6 +79,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def then_unpack[*TS, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, tuple[*TS], OP]
     ) -> Parser[I, tuple[O, *TS], P]:
@@ -59,6 +93,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def unpack_then[*TS, OO, OP: (Literal[True], Literal[False])](
         self: Parser[I, tuple[*TS], P], other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[*TS, OO], P]:
@@ -72,6 +107,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def ignore_then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, OO, P]:
@@ -83,6 +119,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def then_ignore[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, O, P]:
@@ -95,6 +132,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def map[OO](self, func: Callable[[O], OO]) -> Parser[I, OO, P]:
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
             with add_note("Inside map"):
@@ -103,6 +141,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def star_map[*TS, OO](
         self: Parser[I, tuple[*TS], P], func: Callable[[*TS], OO]
     ) -> Parser[I, OO, P]:
@@ -113,6 +152,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
+    @note_traceback_magic
     def to[OO](self, item: OO) -> Parser[I, OO, P]:
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
             with add_note("Inside to"):
@@ -121,11 +161,22 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
     
+    # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
+    @note_traceback_magic
     def repeated[SO, OO](self: Parser[I, SO], stopper: Parser[I, OO]) -> Parser[I, tuple[Sequence[SO], OO]]:
-        inner_choose: Parser[I, tuple[Literal[False], OO] | tuple[Literal[True], SO]] = choose(
-            stopper.map(lambda x: (False, x)),
-            self.map(lambda x: (True, x)),
-        )
+        try:
+            inner_choose: Parser[I, tuple[Literal[False], OO] | tuple[Literal[True], SO]] = choose(
+                stopper.map(lambda x: (False, x)),
+                self.map(lambda x: (True, x)),
+            )
+        except ValueError as e1:
+            try:
+                inner_choose = choose(
+                    self.map(lambda x: (True, x)),
+                    stopper.map(lambda x: (False, x)),
+                )
+            except ValueError as e2:
+                raise ExceptionGroup("Tried to make repeated parser but both orderings failed", (e1, e2)) from None
         def inner(input: Sequence[I], index: int) -> ParserResult[tuple[Sequence[SO], OO]]:
             output: list[SO] = []
             while True:
@@ -136,7 +187,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
                         output.append(value)
                     case (False, value):
                         return (output, value), index
-        return PredicateParser(inner, [*self.predicate(), *stopper.predicate()])
+        return PredicateParser(inner, inner_choose.predicate())
 
 
 class PredicateParser[I, O](Parser[I, O, Literal[True]]):
@@ -232,15 +283,13 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                     temp_index += 1
                 if seq_index < len(seq):
                     continue
-                try:
-                    return parser(input, index)
-                except ValueError as e:
-                    e.add_note(
+                with add_note(
                         f"Matched {seq=!r} out of {new_predicates=!r} at {input[index : index + 10]!r} {index=}"
-                    )
-                    raise
+                    ):
+                    return parser(input, index)
         msg = f"No parser predicates matched the input\nSample of input: {input[index : index + 10]!r}\n{new_predicates=!r}"
-        raise ValueError(msg)
+        with add_note(msg):
+            raise ValueError(msg)
 
     return PredicateParser(inner, new_predicates)
 
