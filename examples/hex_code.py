@@ -44,7 +44,7 @@ class TestParser(unittest.TestCase):
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) == 2:
-        print(hex_code_parser(sys.argv[1], 0))  # ruff: ignore[T201]
+    if len(sys.argv) == 2:  # noqa: PLR2004
+        print(hex_code_parser(sys.argv[1], 0))  # noqa: T201
     else:
         _ = unittest.main()

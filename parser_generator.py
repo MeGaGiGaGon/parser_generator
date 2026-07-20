@@ -1,9 +1,9 @@
+import inspect
+import textwrap
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
-import textwrap
 from typing import Literal, overload, override
-import inspect
 
 type ParserResult[O] = tuple[O, int]
 type ParserFunc[I, O] = Callable[[Sequence[I], int], ParserResult[O]]
@@ -183,8 +183,9 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
                     stopper.map(lambda x: (False, x)),
                 )
             except ValueError as e2:
+                msg = "Tried to make repeated parser but both orderings failed"
                 raise ExceptionGroup(
-                    "Tried to make repeated parser but both orderings failed", (e1, e2)
+                    msg, (e1, e2)
                 ) from None
 
         @_note_traceback
@@ -357,7 +358,7 @@ class any_item[I]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[I]:
             if not index < len(input):
-                msg = f"Input ran empty inside any_item"
+                msg = "Input ran empty inside any_item"
                 raise ValueError(msg)
             return input[index], index + 1
 
@@ -377,7 +378,7 @@ class start_of_file[I]:
         @_note_traceback
         def inner(_: Sequence[I], index: int) -> ParserResult[None]:
             if index != 0:
-                msg = f"Ran start_of_file not at start"
+                msg = "Ran start_of_file not at start"
                 raise ValueError(msg)
             return None, index
 
@@ -389,7 +390,7 @@ class end_of_file[I]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[None]:
             if index != len(input):
-                msg = f"Ran end_of_file not at end"
+                msg = "Ran end_of_file not at end"
                 raise ValueError(msg)
             return None, index
 

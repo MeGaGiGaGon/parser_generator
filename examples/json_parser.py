@@ -5,7 +5,6 @@ to deal with the more fiddly bits
 """
 
 from dataclasses import dataclass
-from typing import Literal
 
 from parser_generator import (
     ForwardRefParser,
@@ -133,7 +132,7 @@ class TestParser(unittest.TestCase):
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) == 2:
-        print(json_parser(sys.argv[1], 0))  # ruff: ignore[T201]
+    if len(sys.argv) == 2:  # noqa: PLR2004
+        print(json_parser(sys.argv[1], 0))  # noqa: T201
     else:
         _ = unittest.main()

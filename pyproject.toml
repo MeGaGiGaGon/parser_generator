@@ -19,4 +19,11 @@ ignore = [
     "INP001",
     "FBT003",
     "PT",
+    "ANN201",
+    "S101",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.22",
 ]
