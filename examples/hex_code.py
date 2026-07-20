@@ -33,8 +33,13 @@ class TestParser(unittest.TestCase):
     def test_ok(self):
         self.assertEqual(hex_code_parser("0x000000", 0), (HexCode(0, 0, 0, 255), 8))
         self.assertEqual(hex_code_parser("0x0000007F", 0), (HexCode(0, 0, 0, 0x7F), 10))
-        self.assertEqual(hex_code_parser("0x7F7F7F7F", 0), (HexCode(0x7F, 0x7F, 0x7F, 0x7F), 10))
-        self.assertEqual(hex_code_parser("0xabcdef", 0), (HexCode(0xAB, 0xCD, 0xEF, 255), 8))
+        self.assertEqual(
+            hex_code_parser("0x7F7F7F7F", 0), (HexCode(0x7F, 0x7F, 0x7F, 0x7F), 10)
+        )
+        self.assertEqual(
+            hex_code_parser("0xabcdef", 0), (HexCode(0xAB, 0xCD, 0xEF, 255), 8)
+        )
+
 
 if __name__ == "__main__":
     import sys

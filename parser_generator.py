@@ -17,6 +17,7 @@ def _add_note(note: str) -> Generator[None]:
         e.add_note(note)
         raise
 
+
 def _note_traceback[I, O](func: ParserFunc[I, O]) -> ParserFunc[I, O]:
     frame = inspect.currentframe()  # frame inside this function
     assert frame
@@ -39,11 +40,17 @@ def _note_traceback[I, O](func: ParserFunc[I, O]) -> ParserFunc[I, O]:
         start = None
         end = None
     note = traceback.code_context[0][start:end].rstrip()
+
     def inner(input: Sequence[I], index: int) -> ParserResult[O]:
-        inner_note = textwrap.indent(f"{input[index:index+5]!r} ({index=})\n{traceback.filename}:{traceback.lineno}\n{note}", "  ")
+        inner_note = textwrap.indent(
+            f"{input[index : index + 5]!r} ({index=})\n{traceback.filename}:{traceback.lineno}\n{note}",
+            "  ",
+        )
         with _add_note(inner_note):
             return func(input, index)
+
     return inner
+
 
 class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
@@ -63,7 +70,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
     def __call__(self, input: Sequence[I], index: int) -> ParserResult[O]:
         return self.func()(input, index)
 
-   
     def then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[O, OO], P]:
@@ -77,7 +83,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def then_unpack[*TS, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, tuple[*TS], OP]
     ) -> Parser[I, tuple[O, *TS], P]:
@@ -92,7 +97,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def unpack_then[*TS, OO, OP: (Literal[True], Literal[False])](
         self: Parser[I, tuple[*TS], P], other: Parser[I, OO, OP]
     ) -> Parser[I, tuple[*TS, OO], P]:
@@ -107,7 +111,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def ignore_then[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, OO, P]:
@@ -120,7 +123,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def then_ignore[OO, OP: (Literal[True], Literal[False])](
         self, other: Parser[I, OO, OP]
     ) -> Parser[I, O, P]:
@@ -134,7 +136,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def map[OO](self, func: Callable[[O], OO]) -> Parser[I, OO, P]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
@@ -144,7 +145,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def star_map[*TS, OO](
         self: Parser[I, tuple[*TS], P], func: Callable[[*TS], OO]
     ) -> Parser[I, OO, P]:
@@ -156,7 +156,6 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
 
         return self.with_new_func(inner)
 
-   
     def to[OO](self, item: OO) -> Parser[I, OO, P]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[OO]:
@@ -165,12 +164,15 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
             return item, index
 
         return self.with_new_func(inner)
-    
+
     # `SO` instead of just `O` because https://github.com/python/typing/issues/2281
-   
-    def repeated[SO, OO](self: Parser[I, SO], stopper: Parser[I, OO]) -> Parser[I, tuple[Sequence[SO], OO]]:
+    def repeated[SO, OO](
+        self: Parser[I, SO], stopper: Parser[I, OO]
+    ) -> Parser[I, tuple[Sequence[SO], OO]]:
         try:
-            inner_choose: Parser[I, tuple[Literal[False], OO] | tuple[Literal[True], SO]] = choose(
+            inner_choose: Parser[
+                I, tuple[Literal[False], OO] | tuple[Literal[True], SO]
+            ] = choose(
                 stopper.map(lambda x: (False, x)),
                 self.map(lambda x: (True, x)),
             )
@@ -181,9 +183,14 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
                     stopper.map(lambda x: (False, x)),
                 )
             except ValueError as e2:
-                raise ExceptionGroup("Tried to make repeated parser but both orderings failed", (e1, e2)) from None
+                raise ExceptionGroup(
+                    "Tried to make repeated parser but both orderings failed", (e1, e2)
+                ) from None
+
         @_note_traceback
-        def inner(input: Sequence[I], index: int) -> ParserResult[tuple[Sequence[SO], OO]]:
+        def inner(
+            input: Sequence[I], index: int
+        ) -> ParserResult[tuple[Sequence[SO], OO]]:
             output: list[SO] = []
             while True:
                 with _add_note(f"Inside repeat count {len(output)}"):
@@ -193,6 +200,7 @@ class Parser[I, O, P: (Literal[True], Literal[False]) = Literal[True]](ABC):
                         output.append(value)
                     case (False, value):
                         return (output, value), index
+
         return PredicateParser(inner, inner_choose.predicate())
 
 
@@ -262,7 +270,6 @@ class ForwardRefParser[I, O](Parser[I, O, Literal[False]]):
         return SimpleParser(func)
 
 
-
 def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[True]]:
     new_predicates: list[Sequence[I]] = []
     for parser in parsers:
@@ -291,15 +298,12 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                     temp_index += 1
                 if seq_index < len(seq):
                     continue
-                with _add_note(
-                        f"Matched {seq=!r} out of {new_predicates=!r}"
-                    ):
+                with _add_note(f"Matched {seq=!r} out of {new_predicates=!r}"):
                     return parser(input, index)
         msg = f"No parser predicates matched the input {new_predicates=!r}"
         raise ValueError(msg)
 
     return PredicateParser(inner, new_predicates)
-
 
 
 def just[I](item: I) -> PredicateParser[I, I]:
@@ -314,7 +318,6 @@ def just[I](item: I) -> PredicateParser[I, I]:
         raise ValueError(msg)
 
     return PredicateParser(inner, [[item]])
-
 
 
 def just_seq[I](seq: Sequence[I]) -> PredicateParser[I, Sequence[I]]:
@@ -333,7 +336,6 @@ def just_seq[I](seq: Sequence[I]) -> PredicateParser[I, Sequence[I]]:
         return seq, index
 
     return PredicateParser(inner, [seq])
-
 
 
 def any_of[I](values: Sequence[I]) -> PredicateParser[I, I]:
@@ -368,7 +370,6 @@ class empty[I]:
             return None, index
 
         return PredicateParser(inner, [[]])
-
 
 
 class start_of_file[I]:

@@ -30,50 +30,52 @@ class Element:
 
 ws = any_of(" \r\n\t").repeated(empty[str]().to("")).map(lambda x: "".join(x[0]))
 
-string = just('"').ignore_then(any_item[str]().repeated(just_seq('"').to("")).map(lambda x: "".join(x[0])))
+string = just('"').ignore_then(
+    any_item[str]().repeated(just_seq('"').to("")).map(lambda x: "".join(x[0]))
+)
 
 object_member = (
     string.then_ignore(ws)
     .then_ignore(just(":"))
     .then(ForwardRefParser(lambda: element))
 )
-object_members: Parser[str, dict[str, Element]] = object_member.then(
-    choose(
-        just(",").then(ws).ignore_then(ForwardRefParser(lambda: object_members)),
-        just("}").map(lambda _: {}),
-    )
-).map(lambda x: {x[0][0]: x[0][1], **x[1]})
+object_members = object_member.then(
+    just(",").then(ws).ignore_then(object_member).repeated(just("}"))
+).map(lambda x: dict([x[0], *x[1][0]]))
 
 json_object = (
     just("{")
     .then(ws)
     .ignore_then(
-        choose(just("}").map(lambda _: {}), empty[str]().ignore_then(object_members))
+        choose(
+            just("}").map(lambda _: dict[str, Element]()),
+            empty[str]().ignore_then(object_members),
+        )
     )
 )
 
-list_members: Parser[str, list[Element], Literal[False]] = (
+list_members = (
     ForwardRefParser(lambda: element)
     .then(
-        choose(
-            just(",").then(ws).ignore_then(ForwardRefParser(lambda: list_members)),
-            just("]").map(lambda _: []),
-        )
+        just(",")
+        .then(ws)
+        .ignore_then(ForwardRefParser(lambda: element))
+        .repeated(just("]"))
     )
-    .map(lambda x: [x[0], *x[1]])
+    .map(lambda x: [x[0], *x[1][0]])
 )
 json_list = (
     just("[")
     .then(ws)
     .ignore_then(
-        choose(just("]").map(lambda _: []), empty[str]().ignore_then(list_members))
+        choose(
+            just("]").map(lambda _: list[Element]()),
+            empty[str]().ignore_then(list_members),
+        )
     )
 )
 
-number_rest: Parser[str, str] = choose(
-    any_of("0123456789").then(ForwardRefParser(lambda: number_rest)).map("".join),
-    empty[str]().to(""),
-)
+number_rest = any_of("0123456789").repeated(empty[str]()).map(lambda x: "".join(x[0]))
 number = choose(just("0"), any_of("123456789").then(number_rest).map("".join)).map(int)
 
 element: Parser[str, Element] = ws.ignore_then(
