@@ -122,7 +122,7 @@ class TestParser(unittest.TestCase):
     def test_complex(self):
         # fmt: off
         self.assertEqual(
-            json_parser('{"a": [], "b": {"c": {}, "d": "", "e": [{[{"\r\n": \r\n[true, false, null, {"true": true, "false": false, "null": null}]}]}]}}', 0),
+            json_parser('{"a": [], "b": {"c": {}, "d": "", "e": [{" ": [{"\r\n": \r\n[true, false, null, {"true": true, "false": false, "null": null}]}]}]}}', 0),
             (Element({"a": Element([]), "b": Element({"c": Element({}), "d": Element(""), "e": Element([Element({" ": Element([Element({"\r\n": Element([Element(True), Element(False), Element(None), Element({"true": Element(True), "false": Element(False), "null": Element(None)})])})])})])})}), 127)
         )
         # fmt: on

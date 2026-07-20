@@ -18,14 +18,20 @@ def _add_note(note: str) -> Generator[None]:
         raise
 
 def _note_traceback[I, O](func: ParserFunc[I, O]) -> ParserFunc[I, O]:
-    frame = inspect.currentframe()
+    frame = inspect.currentframe()  # frame inside this function
     assert frame
-    frame = frame.f_back
+    frame = frame.f_back  # frame inside generator body
     assert frame
-    frame = frame.f_back
+    frame = frame.f_back  # frame maybe in usage code
     assert frame
     traceback = inspect.getframeinfo(frame)
     assert traceback.code_context
+    if "self.__origin__" in traceback.code_context[0]:
+        # We ended up inside typing.py, go out once more
+        frame = frame.f_back  # frame maybe in usage code
+        assert frame
+        traceback = inspect.getframeinfo(frame)
+        assert traceback.code_context
     assert traceback.positions
     start = traceback.positions.col_offset
     end = traceback.positions.end_col_offset
@@ -290,8 +296,7 @@ def choose[I, O](*parsers: Parser[I, O, Literal[True]]) -> Parser[I, O, Literal[
                     ):
                     return parser(input, index)
         msg = f"No parser predicates matched the input {new_predicates=!r}"
-        with _add_note(msg):
-            raise ValueError(msg)
+        raise ValueError(msg)
 
     return PredicateParser(inner, new_predicates)
 
@@ -303,7 +308,7 @@ def just[I](item: I) -> PredicateParser[I, I]:
         if index < len(input):
             if input[index] == item:
                 return item, index + 1
-            msg = f"Expected {item!r}, got {input[index : index + 10]!r} {input[index : index + 10]!r} ({index=})"
+            msg = f"Expected {item!r}"
             raise ValueError(msg)
         msg = f"Expected {item!r}, but input ran out at {index=}"
         raise ValueError(msg)
@@ -318,12 +323,12 @@ def just_seq[I](seq: Sequence[I]) -> PredicateParser[I, Sequence[I]]:
         seq_index = 0
         while index < len(input) and seq_index < len(seq):
             if input[index] != seq[seq_index]:
-                msg = f"Expected {seq[seq_index]!r} (part of {seq=!r}), got {input[index]!r} ({index=})"
+                msg = f"Expected {seq[seq_index]!r} (part of {seq=!r})"
                 raise ValueError(msg)
             seq_index += 1
             index += 1
         if seq_index < len(seq):
-            msg = f"Expected {seq[seq_index]!r} (part of {seq=!r}), but input ran out at {index=}"
+            msg = f"Expected {seq[seq_index]!r} (part of {seq=!r}), but input ran out"
             raise ValueError(msg)
         return seq, index
 
@@ -335,11 +340,11 @@ def any_of[I](values: Sequence[I]) -> PredicateParser[I, I]:
     @_note_traceback
     def inner(input: Sequence[I], index: int) -> ParserResult[I]:
         if not index < len(input):
-            msg = f"Input ran empty inside any_of\n{values=!r} ({index=})"
+            msg = f"Input ran empty inside any_of\n{values=!r}"
             raise ValueError(msg)
         if input[index] in values:
             return input[index], index + 1
-        msg = f"Expected one of {values!r}, got {input[index]!r} ({index=})"
+        msg = f"Expected one of {values=!r}"
         raise ValueError(msg)
 
     return PredicateParser(inner, [[x] for x in values])
@@ -350,7 +355,7 @@ class any_item[I]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[I]:
             if not index < len(input):
-                msg = f"Input ran empty inside any_item ({index=})"
+                msg = f"Input ran empty inside any_item"
                 raise ValueError(msg)
             return input[index], index + 1
 
@@ -371,7 +376,7 @@ class start_of_file[I]:
         @_note_traceback
         def inner(_: Sequence[I], index: int) -> ParserResult[None]:
             if index != 0:
-                msg = f"Ran start_of_file not at start ({index=})"
+                msg = f"Ran start_of_file not at start"
                 raise ValueError(msg)
             return None, index
 
@@ -383,7 +388,7 @@ class end_of_file[I]:
         @_note_traceback
         def inner(input: Sequence[I], index: int) -> ParserResult[None]:
             if index != len(input):
-                msg = f"Ran end_of_file not at end ({index}/{len(input)})"
+                msg = f"Ran end_of_file not at end"
                 raise ValueError(msg)
             return None, index
 
